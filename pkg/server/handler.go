@@ -96,6 +96,8 @@ func (ch *connHandler) NumConnections() uint64 {
 // AddOrUpdateListener used to add or update listener
 // listener name is unique key to represent the listener
 // and listener with the same name must have the same configured address
+
+// v2.Listener里使用了专属的InheritListener *net.TCPListener，然而net.Listener下没有UDPListener，幸运的是，这里也没有用到字段InheritListener
 func (ch *connHandler) AddOrUpdateListener(lc *v2.Listener) (types.ListenerEventListener, error) {
 
 	var listenerName string
@@ -329,6 +331,7 @@ func (ch *connHandler) StopConnection() {
 }
 
 // ListenerEventListener
+// 如果udp和tcp在这一个层级上的差距很大，那么需要考虑设计tcpActiveListener和udpActiveListener
 type activeListener struct {
 	listener                    types.Listener
 	listenerFiltersFactories    []api.ListenerFilterChainFactory
@@ -397,6 +400,7 @@ func (al *activeListener) GoStart(lctx context.Context) {
 }
 
 // ListenerEventListener
+// 考虑修改这个实现，允许传入udp的链接。Conn里面有UDPConn的实现
 func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemoteAddr net.Addr, ch chan api.Connection, buf []byte) {
 	var rawf *os.File
 

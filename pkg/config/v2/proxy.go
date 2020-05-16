@@ -19,6 +19,9 @@ package v2
 
 import "time"
 
+type UDPProxy struct {
+}
+
 // TCPProxy
 type TCPProxy struct {
 	StatPrefix         string         `json:"stat_prefix,omitempty"`
