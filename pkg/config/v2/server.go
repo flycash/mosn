@@ -26,17 +26,17 @@ import (
 
 // ServerConfig for making up server for mosn
 type ServerConfig struct {
-	//default logger
+	// default logger
 	ServerName      string `json:"mosn_server_name,omitempty"`
 	DefaultLogPath  string `json:"default_log_path,omitempty"`
 	DefaultLogLevel string `json:"default_log_level,omitempty"`
 	GlobalLogRoller string `json:"global_log_roller,omitempty"`
 
 	UseNetpollMode bool `json:"use_netpoll_mode,omitempty"`
-	//graceful shutdown config
+	// graceful shutdown config
 	GracefulTimeout api.DurationConfig `json:"graceful_timeout,omitempty"`
 
-	//go processor number
+	// go processor number
 	Processor int `json:"processor,omitempty"`
 
 	Listeners []Listener `json:"listeners,omitempty"`
@@ -53,6 +53,7 @@ const INGRESS ListenerType = "ingress"
 type ListenerConfig struct {
 	Name                  string              `json:"name,omitempty"`
 	Type                  ListenerType        `json:"type,omitempty"`
+	Network               string              `default:"tcp" json:"network,omitempty"`
 	AddrConfig            string              `json:"address,omitempty"`
 	BindToPort            bool                `json:"bind_port,omitempty"`
 	UseOriginalDst        bool                `json:"use_original_dst,omitempty"`
@@ -67,12 +68,12 @@ type ListenerConfig struct {
 // Listener contains the listener's information
 type Listener struct {
 	ListenerConfig
-	Addr                    net.Addr         `json:"-"`
-	ListenerTag             uint64           `json:"-"`
-	ListenerScope           string           `json:"-"`
-	PerConnBufferLimitBytes uint32           `json:"-"` // do not support config
+	Addr                    net.Addr     `json:"-"`
+	ListenerTag             uint64       `json:"-"`
+	ListenerScope           string       `json:"-"`
+	PerConnBufferLimitBytes uint32       `json:"-"` // do not support config
 	InheritListener         *net.TCPListener `json:"-"`
-	Remain                  bool             `json:"-"`
+	Remain                  bool         `json:"-"`
 }
 
 func (l Listener) MarshalJSON() (b []byte, err error) {
@@ -113,7 +114,7 @@ func (fc *FilterChain) UnmarshalJSON(b []byte) error {
 	if len(fc.TLSConfigs) > 0 {
 		fc.TLSContexts = make([]TLSConfig, len(fc.TLSConfigs))
 		copy(fc.TLSContexts, fc.TLSConfigs)
-	} else { // no tls_context_set, use tls_context
+	} else {                     // no tls_context_set, use tls_context
 		if fc.TLSConfig == nil { // no tls_context, generate a default one
 			fc.TLSContexts = append(fc.TLSContexts, TLSConfig{})
 		} else { // use tls_context

@@ -33,6 +33,8 @@ import (
 
 	"golang.org/x/sys/unix"
 	"mosn.io/api"
+	"mosn.io/pkg/utils"
+
 	admin "mosn.io/mosn/pkg/admin/store"
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/configmanager"
@@ -42,7 +44,6 @@ import (
 	"mosn.io/mosn/pkg/mtls"
 	"mosn.io/mosn/pkg/network"
 	"mosn.io/mosn/pkg/types"
-	"mosn.io/pkg/utils"
 )
 
 // ConnectionHandler
@@ -171,15 +172,15 @@ func (ch *connHandler) AddOrUpdateListener(lc *v2.Listener) (types.ListenerEvent
 
 	} else {
 		// listener doesn't exist, add the listener
-		//TODO: connection level stop-chan usage confirm
+		// TODO: connection level stop-chan usage confirm
 		listenerStopChan := make(chan struct{})
 
-		//initialize access log
+		// initialize access log
 		var als []api.AccessLog
 
 		for _, alConfig := range lc.AccessLogs {
 
-			//use default listener access log path
+			// use default listener access log path
 			if alConfig.Path == "" {
 				alConfig.Path = types.MosnLogBasePath + string(os.PathSeparator) + lc.Name + "_access.log"
 			}
@@ -292,7 +293,7 @@ func (ch *connHandler) ListListenersFile(lctx context.Context) []*os.File {
 		file, err := l.listener.ListenerFile()
 		if err != nil {
 			log.DefaultLogger.Alertf("listener.list", "[server] [conn handler] fail to get listener %s file descriptor: %v", l.listener.Name(), err)
-			return nil //stop reconfigure
+			return nil // stop reconfigure
 		}
 		files[idx] = file
 	}
@@ -380,6 +381,11 @@ func newActiveListener(listener types.Listener, lc *v2.Listener, accessLoggers [
 	al.listenPort = listenPort
 	al.stats = newListenerStats(al.listener.Name())
 
+	if lc.Network != "tcp" {
+		return al, nil
+	}
+
+	// Now, only tcp need this
 	mgr, err := mtls.NewTLSServerContextManager(lc)
 	if err != nil {
 		log.DefaultLogger.Errorf("[server] [new listener] create tls context manager failed, %v", err)
@@ -400,7 +406,6 @@ func (al *activeListener) GoStart(lctx context.Context) {
 }
 
 // ListenerEventListener
-// 考虑修改这个实现，允许传入udp的链接。Conn里面有UDPConn的实现
 func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemoteAddr net.Addr, ch chan api.Connection, buf []byte) {
 	var rawf *os.File
 
@@ -462,7 +467,7 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 }
 
 func (al *activeListener) OnNewConnection(ctx context.Context, conn api.Connection) {
-	//Register Proxy's Filter
+	// Register Proxy's Filter
 	filterManager := conn.FilterManager()
 	for _, nfcf := range al.networkFiltersFactories {
 		nfcf.CreateFilterChain(ctx, filterManager)

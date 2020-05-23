@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	"mosn.io/api"
+
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/protocol"
@@ -168,15 +169,29 @@ func ParseListenerConfig(lc *v2.Listener, inheritListeners []net.Listener) *v2.L
 	if lc.AddrConfig == "" {
 		log.StartLogger.Fatalf("[config] [parse listener] Address is required in listener config")
 	}
-	addr, err := net.ResolveTCPAddr("tcp", lc.AddrConfig)
+
+	if lc.Network != "tcp" && lc.Network != "udp" {
+		log.StartLogger.Fatalf("[config] [parse listener] Network should be udp or tcp")
+	}
+	var (
+		addr net.Addr
+		err  error
+	)
+	if lc.Network == "tcp" {
+		addr, err = net.ResolveTCPAddr("tcp", lc.AddrConfig)
+	} else {
+		addr, err = net.ResolveUDPAddr("udp", lc.AddrConfig)
+	}
+
 	if err != nil {
 		log.StartLogger.Fatalf("[config] [parse listener] Address not valid: %v", lc.AddrConfig)
 	}
-	//try inherit legacy listener
+	// try inherit legacy listener
 	var old *net.TCPListener
 
 	for i, il := range inheritListeners {
-		if il == nil {
+		// there is not any udp listener
+		if il == nil || lc.Network == "udp" {
 			continue
 		}
 		tl := il.(*net.TCPListener)
@@ -185,13 +200,14 @@ func ParseListenerConfig(lc *v2.Listener, inheritListeners []net.Listener) *v2.L
 			log.StartLogger.Fatalf("[config] [parse listener] inheritListener not valid: %s", tl.Addr().String())
 		}
 
-		if addr.Port != ilAddr.Port {
+		tcpAddr := addr.(*net.TCPAddr)
+		if tcpAddr.Port != ilAddr.Port {
 			continue
 		}
 
-		if (addr.IP.IsUnspecified() && ilAddr.IP.IsUnspecified()) ||
-			(addr.IP.IsLoopback() && ilAddr.IP.IsLoopback()) ||
-			addr.IP.Equal(ilAddr.IP) {
+		if (tcpAddr.IP.IsUnspecified() && ilAddr.IP.IsUnspecified()) ||
+			(tcpAddr.IP.IsLoopback() && ilAddr.IP.IsLoopback()) ||
+			tcpAddr.IP.Equal(ilAddr.IP) {
 			log.StartLogger.Infof("[config] [parse listener] inherit listener addr: %s", lc.AddrConfig)
 			old = tl
 			inheritListeners[i] = nil
@@ -223,7 +239,7 @@ func ParseRouterConfiguration(c *v2.FilterChain) (*v2.RouterConfiguration, error
 }
 
 func ParseServiceRegistry(src v2.ServiceRegistryInfo) {
-	//trigger all callbacks
+	// trigger all callbacks
 	if cbs, ok := configParsedCBMaps[ParseCallbackKeyServiceRgtInfo]; ok {
 		for _, cb := range cbs {
 			cb(src, true)

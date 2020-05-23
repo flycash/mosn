@@ -25,11 +25,12 @@ import (
 	"sync"
 	"time"
 
+	"mosn.io/pkg/utils"
+
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/metrics"
 	"mosn.io/mosn/pkg/types"
-	"mosn.io/pkg/utils"
 )
 
 type ListenerState int
@@ -53,9 +54,13 @@ type listener struct {
 	perConnBufferLimitBytes uint32
 	useOriginalDst          bool
 	cb                      types.ListenerEventListener
-	rawl                    *net.TCPListener
-	config                  *v2.Listener
-	mutex                   sync.Mutex
+
+	// network related
+	rawl    *net.TCPListener
+	rawConn *net.UDPConn
+
+	config *v2.Listener
+	mutex  sync.Mutex
 	// listener state indicates the listener's running state. The listener state effects if a listener binded to a port
 	state ListenerState
 }
@@ -73,7 +78,7 @@ func NewListener(lc *v2.Listener) types.Listener {
 	}
 
 	if lc.InheritListener != nil {
-		//inherit old process's listener
+		// inherit old process's listener
 		l.rawl = lc.InheritListener
 	}
 	return l
@@ -93,6 +98,13 @@ func (l *listener) Name() string {
 
 func (l *listener) Addr() net.Addr {
 	return l.localAddress
+}
+
+func (l *listener) listenAddr() net.Addr {
+	if l.rawl != nil {
+		return l.rawl.Addr()
+	}
+	return l.rawConn.LocalAddr()
 }
 
 func (l *listener) Start(lctx context.Context, restart bool) {
@@ -123,8 +135,8 @@ func (l *listener) Start(lctx context.Context, restart bool) {
 				}
 			default:
 				// try start listener
-				//call listen if not inherit
-				if l.rawl == nil {
+				// call listen if not inherit
+				if !l.isListening() {
 					if err := l.listen(lctx); err != nil {
 						// TODO: notify listener callbacks
 						log.StartLogger.Fatalf("[network] [listener start] [listen] %s listen failed, %v", l.name, err)
@@ -133,7 +145,7 @@ func (l *listener) Start(lctx context.Context, restart bool) {
 			}
 			l.state = ListenerRunning
 			// add metrics for listener if bind port
-			metrics.AddListenerAddr(l.rawl.Addr().String())
+			metrics.AddListenerAddr(l.listenAddr().String())
 			return false
 		}()
 		if ignore {
@@ -166,7 +178,10 @@ func (l *listener) Start(lctx context.Context, restart bool) {
 }
 
 func (l *listener) Stop() error {
-	return l.rawl.SetDeadline(time.Now())
+	if l.rawl != nil {
+		return l.rawl.SetDeadline(time.Now())
+	}
+	return l.rawConn.SetDeadline(time.Now())
 }
 
 func (l *listener) ListenerTag() uint64 {
@@ -178,7 +193,10 @@ func (l *listener) SetListenerTag(tag uint64) {
 }
 
 func (l *listener) ListenerFile() (*os.File, error) {
-	return l.rawl.File()
+	if l.rawl != nil {
+		return l.rawl.File()
+	}
+	return l.rawConn.File()
 }
 
 func (l *listener) PerConnBufferLimitBytes() uint32 {
@@ -213,27 +231,54 @@ func (l *listener) Close(lctx context.Context) error {
 		l.cb.OnClose()
 		return l.rawl.Close()
 	}
+
+	if l.rawConn != nil {
+		return l.rawConn.Close()
+	}
 	return nil
 }
 
 func (l *listener) listen(lctx context.Context) error {
 	var err error
 
-	var rawl *net.TCPListener
-	if rawl, err = net.ListenTCP("tcp", l.localAddress.(*net.TCPAddr)); err != nil {
-		return err
+	if l.localAddress.Network() == "tcp" {
+		var rawl *net.TCPListener
+		if rawl, err = net.ListenTCP("tcp", l.localAddress.(*net.TCPAddr)); err != nil {
+			return err
+		}
+
+		l.rawl = rawl
+
+	} else {
+
+		var rawConn *net.UDPConn
+
+		if rawConn, err = net.ListenUDP("udp", l.localAddress.(*net.UDPAddr)); err != nil {
+			return err
+		}
+		l.rawConn = rawConn
 	}
-
-	l.rawl = rawl
-
 	return nil
 }
 
-func (l *listener) accept(lctx context.Context) error {
-	rawc, err := l.rawl.Accept()
+// listening check whether this listener keep listening
+func (l *listener) isListening() bool {
+	return l.rawl != nil || l.rawConn != nil
+}
 
-	if err != nil {
-		return err
+func (l *listener) accept(lctx context.Context) error {
+
+	var (
+		rawc net.Conn
+		err  error
+	)
+	if l.rawl != nil {
+		rawc, err = l.rawl.Accept()
+		if err != nil {
+			return err
+		}
+	} else {
+		rawc = l.rawConn
 	}
 
 	// TODO: use thread pool
