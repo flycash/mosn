@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mosn.io/api"
+
 	"mosn.io/mosn/pkg/network"
 	"mosn.io/mosn/pkg/protocol"
 	"mosn.io/mosn/pkg/protocol/xprotocol"
@@ -68,7 +69,7 @@ func NewConnClient(addr string, f MakeRequestFunc) (*ConnClient, error) {
 		MakeRequest: f,
 		close:       make(chan struct{}),
 	}
-	conn := network.NewClientConnection(nil, 0, nil, remoteAddr, make(chan struct{}))
+	conn := network.NewClientConnection(nil, 0, nil, remoteAddr, make(chan struct{}), "tcp")
 	if err := conn.Connect(); err != nil {
 		return nil, err
 	}

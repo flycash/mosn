@@ -57,6 +57,9 @@ type ClusterManager interface {
 	// Get or Create tcp conn pool for a cluster
 	TCPConnForCluster(balancerContext LoadBalancerContext, snapshot ClusterSnapshot) CreateConnectionData
 
+	// Get or Create udp conn pool for a cluster
+	UDPConnForCluster(balancerContext LoadBalancerContext, snapshot ClusterSnapshot) CreateConnectionData
+
 	// ConnPoolForCluster used to get protocol related conn pool
 	ConnPoolForCluster(balancerContext LoadBalancerContext, snapshot ClusterSnapshot, protocol api.Protocol) ConnectionPool
 

@@ -15,28 +15,34 @@
  * limitations under the License.
  */
 
-package udpproxy
+package network
 
 import (
-	"context"
-
-	"mosn.io/api"
-
-	v2 "mosn.io/mosn/pkg/config/v2"
+	"net"
 )
 
-func init() {
-	api.RegisterNetwork(v2.UDP_PROXY, CreateUDPProxyFactory)
+// udpConnection represents the udp connection between client and server
+// now I have two assumption,
+// 1. UseNetpollMode is false
+// 2. tlsManager is nil because we don't support tls based on udp
+type udpConnection struct {
+	connection
 }
 
-type udpProxyFilterConfigFactory struct {
-	proxy v2.UDPProxy
+func (c *udpConnection) getRemoteIp() (net.IP, bool) {
+	tcpAddr, ok := c.remoteAddr.(*net.UDPAddr)
+	if ok {
+		return tcpAddr.IP, true
+	}
+	return nil, false
 }
 
-func (f *udpProxyFilterConfigFactory) CreateFilterChain(context context.Context, callbacks api.NetWorkFilterChainFactoryCallbacks) {
-	panic("implement me")
+// closeRead do nothing since udp is not stream-oriented protocol
+func (c *udpConnection) closeRead()  {
 }
 
-func CreateUDPProxyFactory(conf map[string]interface{}) (api.NetworkFilterChainFactory, error) {
-	panic("implement me")
+type udpClientConnection struct {
+	clientConnection
 }
+
+

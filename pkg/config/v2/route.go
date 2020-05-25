@@ -306,14 +306,18 @@ type TCPRouteConfig struct {
 	Dests   []string `json:"destination_addrs,omitempty"`
 }
 
-// TCPRoute
-type TCPRoute struct {
+type Route struct {
 	Cluster          string
 	SourceAddrs      []CidrRange
 	DestinationAddrs []CidrRange
 	SourcePort       string
 	DestinationPort  string
 }
+// TCPRoute
+type TCPRoute Route
+
+// UDPRoute, now it's alias for Route
+type UDPRoute Route
 
 // CidrRange
 type CidrRange struct {

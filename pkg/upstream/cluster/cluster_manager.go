@@ -262,6 +262,14 @@ func (cm *clusterManager) PutClusterSnapshot(snap types.ClusterSnapshot) {
 }
 
 func (cm *clusterManager) TCPConnForCluster(lbCtx types.LoadBalancerContext, snapshot types.ClusterSnapshot) types.CreateConnectionData {
+	return cm.connForCluster(lbCtx, snapshot, "udp")
+}
+
+func (cm *clusterManager) UDPConnForCluster(lbCtx types.LoadBalancerContext, snapshot types.ClusterSnapshot) types.CreateConnectionData {
+	return cm.connForCluster(lbCtx, snapshot, "udp")
+}
+
+func (cm *clusterManager) connForCluster(lbCtx types.LoadBalancerContext, snapshot types.ClusterSnapshot, network string) types.CreateConnectionData {
 	if snapshot == nil || reflect.ValueOf(snapshot).IsNil() {
 		return types.CreateConnectionData{}
 	}
@@ -269,7 +277,7 @@ func (cm *clusterManager) TCPConnForCluster(lbCtx types.LoadBalancerContext, sna
 	if host == nil {
 		return types.CreateConnectionData{}
 	}
-	return host.CreateConnection(context.Background())
+	return host.CreateConnection(context.WithValue(context.Background(), "network", network))
 }
 
 func (cm *clusterManager) ConnPoolForCluster(balancerContext types.LoadBalancerContext, snapshot types.ClusterSnapshot, protocol types.ProtocolName) types.ConnectionPool {

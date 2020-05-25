@@ -33,12 +33,13 @@ import (
 
 	"github.com/rcrowley/go-metrics"
 	"mosn.io/api"
+	"mosn.io/pkg/buffer"
+	"mosn.io/pkg/utils"
+
 	mosnctx "mosn.io/mosn/pkg/context"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/mtls"
 	"mosn.io/mosn/pkg/types"
-	"mosn.io/pkg/buffer"
-	"mosn.io/pkg/utils"
 )
 
 // Network related const
@@ -53,9 +54,10 @@ const (
 
 var idCounter uint64 = 1
 
+// connection is an abstraction.
 type connection struct {
 	id         uint64
-	file       *os.File //copy of origin connection fd
+	file       *os.File // copy of origin connection fd
 	localAddr  net.Addr
 	remoteAddr net.Addr
 
@@ -232,16 +234,24 @@ func (c *connection) attachEventLoop(lctx context.Context) {
 }
 
 func (c *connection) checkUseWriteLoop() bool {
-	tcpAddr, ok := c.remoteAddr.(*net.TCPAddr)
+	remoteIp, ok := c.getRemoteIp()
 	if !ok {
 		return false
 	}
-	if tcpAddr.IP.IsLoopback() {
+	if remoteIp.IsLoopback() {
 		log.DefaultLogger.Debugf("[network] [check use writeloop] Connection = %d, Local Address = %+v, Remote Address = %+v",
 			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
 		return true
 	}
 	return false
+}
+
+func (c *connection) getRemoteIp() (net.IP, bool) {
+	tcpAddr, ok := c.remoteAddr.(*net.TCPAddr)
+	if ok {
+		return tcpAddr.IP, true
+	}
+	return nil, false
 }
 
 func (c *connection) startRWLoop(lctx context.Context) {
@@ -271,15 +281,15 @@ func (c *connection) scheduleWrite() {
 			// at least 1 buffer need to avoid all chan-recv missed by select.default option
 			c.appendBuffer(<-c.writeBufferChan)
 
-			//todo: dynamic set loop nums
-			//slots := len(c.writeBufferChan)
-			//if slots < 10 {
+			// todo: dynamic set loop nums
+			// slots := len(c.writeBufferChan)
+			// if slots < 10 {
 			//	slots = 10
-			//}
+			// }
 
-			//if len(c.writeBufferChan) < 10 {
+			// if len(c.writeBufferChan) < 10 {
 			//	runtime.Gosched()
-			//}
+			// }
 
 			for i := 0; i < 10; i++ {
 				select {
@@ -445,7 +455,7 @@ func (c *connection) doRead() (err error) {
 		}
 	}
 
-	//todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
+	// todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
 	if bytesRead == 0 && err == nil {
 		err = io.EOF
 		log.DefaultLogger.Errorf("[network] ReadOnce maybe always return (0, nil) and causes dead loop, Connection = %d, Local Address = %+v, Remote Address = %+v",
@@ -576,7 +586,7 @@ func (c *connection) writeDirectly(buf *[]buffer.IoBuffer) (err error) {
 			c.Close(api.NoFlush, api.LocalClose)
 		}
 
-		//other write errs not close connection, beacause readbuffer may have unread data, wait for readloop close connection,
+		// other write errs not close connection, beacause readbuffer may have unread data, wait for readloop close connection,
 
 		return
 	}
@@ -613,7 +623,7 @@ func (c *connection) startWriteLoop() {
 			}
 			c.appendBuffer(buf)
 
-			//todo: dynamic set loop nums
+			// todo: dynamic set loop nums
 			for i := 0; i < 10; i++ {
 				select {
 				case buf, ok := <-c.writeBufferChan:
@@ -642,7 +652,7 @@ func (c *connection) startWriteLoop() {
 				c.Close(api.NoFlush, api.LocalClose)
 			}
 
-			//other write errs not close connection, beacause readbuffer may have unread data, wait for readloop close connection,
+			// other write errs not close connection, beacause readbuffer may have unread data, wait for readloop close connection,
 
 			return
 		}
@@ -682,7 +692,7 @@ func (c *connection) doWriteIo() (bytesSent int64, err error) {
 	if tlsConn, ok := c.rawConnection.(*mtls.TLSConn); ok {
 		bytesSent, err = tlsConn.WriteTo(&buffers)
 	} else {
-		//todo: writev(runtime) has memroy leak.
+		// todo: writev(runtime) has memroy leak.
 		bytesSent, err = buffers.WriteTo(c.rawConnection)
 	}
 	if err != nil {
@@ -748,12 +758,7 @@ func (c *connection) Close(ccType api.ConnectionCloseType, eventType api.Connect
 	}
 
 	// shutdown read first
-	if rawc, ok := c.rawConnection.(*net.TCPConn); ok {
-		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
-			log.DefaultLogger.Debugf("[network] [close connection] Close TCP Conn, Remote Address is = %s, eventType is = %s", rawc.RemoteAddr(), eventType)
-		}
-		rawc.CloseRead()
-	}
+	c.closeRead()
 
 	// wait for io loops exit, ensure single thread operate streams on the connection
 	// because close function must be called by one io loop thread, notify another loop here
@@ -779,6 +784,16 @@ func (c *connection) Close(ccType api.ConnectionCloseType, eventType api.Connect
 	}
 
 	return nil
+}
+
+// closeRead will shutdown the reading site
+func (c *connection) closeRead() {
+	if rawc, ok := c.rawConnection.(*net.TCPConn); ok {
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[network] [close connection] Close TCP Conn, Remote Address is = %s, eventType is = %s", rawc.RemoteAddr(), eventType)
+		}
+		rawc.CloseRead()
+	}
 }
 
 func (c *connection) LocalAddr() net.Addr {
@@ -810,6 +825,10 @@ func (c *connection) NextProtocol() string {
 	return ""
 }
 
+// SetNoDelay controls whether the operating system should delay
+// packet transmission in hopes of sending fewer packets (Nagle's
+// algorithm).
+// TCP only
 func (c *connection) SetNoDelay(enable bool) {
 	if c.rawConnection != nil {
 
@@ -911,7 +930,20 @@ type clientConnection struct {
 }
 
 // NewClientConnection new client-side connection
-func NewClientConnection(sourceAddr net.Addr, connectTimeout time.Duration, tlsMng types.TLSContextManager, remoteAddr net.Addr, stopChan chan struct{}) types.ClientConnection {
+// network could be udp ot tcp
+func NewClientConnection(sourceAddr net.Addr,
+	connectTimeout time.Duration,
+	tlsMng types.TLSContextManager,
+	remoteAddr net.Addr,
+	stopChan chan struct{},
+	network string) types.ClientConnection {
+	if network == "udp" {
+		// TODO (building udp client connection)
+	}
+	return newClientConnection(sourceAddr, connectTimeout, tlsMng, remoteAddr, stopChan)
+}
+
+func newClientConnection(sourceAddr net.Addr, connectTimeout time.Duration, tlsMng types.TLSContextManager, remoteAddr net.Addr, stopChan chan struct{}) types.ClientConnection {
 	id := atomic.AddUint64(&idCounter, 1)
 
 	conn := &clientConnection{

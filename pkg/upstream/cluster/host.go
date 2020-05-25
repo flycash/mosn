@@ -110,7 +110,11 @@ func (sh *simpleHost) CreateConnection(context context.Context) types.CreateConn
 	if sh.SupportTLS() {
 		tlsMng = sh.clusterInfo.TLSMng()
 	}
-	clientConn := network.NewClientConnection(nil, sh.clusterInfo.ConnectTimeout(), tlsMng, sh.Address(), nil)
+	ntwk := context.Value("network").(string)
+	if len(ntwk) == 0 {
+		ntwk = "tcp"
+	}
+	clientConn := network.NewClientConnection(nil, sh.clusterInfo.ConnectTimeout(), tlsMng, sh.Address(), nil, ntwk)
 	clientConn.SetBufferLimit(sh.clusterInfo.ConnBufferLimitBytes())
 
 	return types.CreateConnectionData{

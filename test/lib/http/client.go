@@ -65,7 +65,7 @@ func NewConnClient(addr string, f MakeRequestFunc) (*ConnClient, error) {
 		MakeRequest: f,
 		close:       make(chan struct{}),
 	}
-	conn := network.NewClientConnection(nil, 0, nil, remoteAddr, make(chan struct{}))
+	conn := network.NewClientConnection(nil, 0, nil, remoteAddr, make(chan struct{}), "tcp")
 	if err := conn.Connect(); err != nil {
 		return nil, err
 	}

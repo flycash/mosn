@@ -15,7 +15,47 @@
  * limitations under the License.
  */
 
-package udpproxy
+package main
 
-type proxy struct {
+import (
+	"fmt"
+	"net"
+	"strings"
+)
+
+// 读取消息
+func handleConnection(udpConn *net.UDPConn) {
+
+	buf := make([]byte, 1024)
+	len, udpAddr, err := udpConn.ReadFromUDP(buf)
+	if err != nil{
+		return
+	}
+	logContent := strings.Replace(string(buf),"\n","",1)
+	fmt.Println("server read len:", len)
+	fmt.Println("server read data:", logContent)
+
+	// 发送数据
+	len, err = udpConn.WriteToUDP([]byte("ok\r\n"), udpAddr)
+	if err != nil{
+		return
+	}
+
+	fmt.Println("server write len:", len, "\n")
+}
+
+func main() {
+	udpAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:9998")
+
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer udpConn.Close()
+
+	fmt.Println("udp listening ... ")
+
+	for {
+		handleConnection(udpConn)
+	}
 }
