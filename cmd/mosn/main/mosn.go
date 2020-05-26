@@ -19,11 +19,11 @@ package main
 
 import (
 	_ "flag"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/urfave/cli"
+
 	_ "mosn.io/mosn/pkg/buffer"
 	_ "mosn.io/mosn/pkg/filter/listener/originaldst"
 	_ "mosn.io/mosn/pkg/filter/network/connectionmanager"
@@ -84,5 +84,12 @@ func main() {
 	}
 
 	// ignore error so we don't exit non-zero and break gfmrun README example tests
-	_ = app.Run(os.Args)
+	// _ = app.Run(os.Args)
+	args := make([]string, 1, 3)
+
+	args = append(args, "start")
+	args = append(args, "-c")
+	args = append(args, "/Users/mindeng/mosn/examples/codes/udpproxy-sample/config.json")
+
+	_ = app.Run(args)
 }

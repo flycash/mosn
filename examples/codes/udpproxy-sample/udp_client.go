@@ -15,34 +15,22 @@
  * limitations under the License.
  */
 
-package network
+package main
 
 import (
+	"fmt"
 	"net"
-
-	"mosn.io/api"
 )
 
-// udpConnection represents the udp connection between client and server
-// now I have two assumption,
-// 1. UseNetpollMode is false
-// 2. tlsManager is nil because we don't support tls based on udp
-type udpConnection struct {
-	connection
-}
-
-func (c *udpConnection) getRemoteIp() (net.IP, bool) {
-	tcpAddr, ok := c.remoteAddr.(*net.UDPAddr)
-	if ok {
-		return tcpAddr.IP, true
+func main() {
+	sip := net.ParseIP("127.0.0.1")
+	srcAddr := &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+	dstAddr := &net.UDPAddr{IP: sip, Port: 9981}
+	conn, err := net.DialUDP("udp", srcAddr, dstAddr)
+	if err != nil {
+		fmt.Println(err)
 	}
-	return nil, false
-}
-
-// closeRead do nothing since udp is not stream-oriented protocol
-func (c *udpConnection) closeRead(eventType api.ConnectionEvent) {
-}
-
-type udpClientConnection struct {
-	clientConnection
+	defer conn.Close()
+	conn.Write([]byte("hello"))
+	fmt.Printf("<%s>\n", conn.RemoteAddr())
 }

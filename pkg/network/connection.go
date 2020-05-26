@@ -758,7 +758,7 @@ func (c *connection) Close(ccType api.ConnectionCloseType, eventType api.Connect
 	}
 
 	// shutdown read first
-	c.closeRead()
+	c.closeRead(eventType)
 
 	// wait for io loops exit, ensure single thread operate streams on the connection
 	// because close function must be called by one io loop thread, notify another loop here
@@ -787,7 +787,7 @@ func (c *connection) Close(ccType api.ConnectionCloseType, eventType api.Connect
 }
 
 // closeRead will shutdown the reading site
-func (c *connection) closeRead() {
+func (c *connection) closeRead(eventType api.ConnectionEvent) {
 	if rawc, ok := c.rawConnection.(*net.TCPConn); ok {
 		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
 			log.DefaultLogger.Debugf("[network] [close connection] Close TCP Conn, Remote Address is = %s, eventType is = %s", rawc.RemoteAddr(), eventType)
