@@ -28,24 +28,35 @@ import (
 
 func init() {
 	api.RegisterNetwork(v2.TCP_PROXY, CreateTCPProxyFactory)
+	api.RegisterNetwork(v2.UDP_PROXY, CreateUDPProxyFactory)
 }
 
 type tcpProxyFilterConfigFactory struct {
 	Proxy *v2.TCPProxy
+	network string
 }
 
 func (f *tcpProxyFilterConfigFactory) CreateFilterChain(context context.Context, callbacks api.NetWorkFilterChainFactoryCallbacks) {
-	rf := NewProxy(context, f.Proxy)
+	rf := NewProxy(context, f.Proxy, f.network)
 	callbacks.AddReadFilter(rf)
 }
 
 func CreateTCPProxyFactory(conf map[string]interface{}) (api.NetworkFilterChainFactory, error) {
+	return createProxyFactory(conf, "tcp")
+}
+
+func CreateUDPProxyFactory(conf map[string]interface{}) (api.NetworkFilterChainFactory, error) {
+	return createProxyFactory(conf, "udp")
+}
+
+func createProxyFactory(conf map[string]interface{}, network string) (api.NetworkFilterChainFactory, error) {
 	p, err := ParseTCPProxy(conf)
 	if err != nil {
 		return nil, err
 	}
 	return &tcpProxyFilterConfigFactory{
 		Proxy: p,
+		network: network,
 	}, nil
 }
 

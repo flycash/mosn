@@ -924,29 +924,27 @@ func (c *connection) State() api.ConnState {
 type clientConnection struct {
 	connection
 
+	// udp or tcp
+	// think about moving it into connection struct
+	network string
+
 	connectTimeout time.Duration
 
 	connectOnce sync.Once
 }
 
 // NewClientConnection new client-side connection
-// network could be udp ot tcp
+// network could be udp or tcp
 func NewClientConnection(sourceAddr net.Addr,
 	connectTimeout time.Duration,
 	tlsMng types.TLSContextManager,
 	remoteAddr net.Addr,
 	stopChan chan struct{},
 	network string) types.ClientConnection {
-	if network == "udp" {
-		// TODO (building udp client connection)
-	}
-	return newClientConnection(sourceAddr, connectTimeout, tlsMng, remoteAddr, stopChan)
-}
-
-func newClientConnection(sourceAddr net.Addr, connectTimeout time.Duration, tlsMng types.TLSContextManager, remoteAddr net.Addr, stopChan chan struct{}) types.ClientConnection {
 	id := atomic.AddUint64(&idCounter, 1)
 
 	conn := &clientConnection{
+		network:network,
 		connection: connection{
 			id:               id,
 			localAddr:        sourceAddr,
@@ -987,7 +985,7 @@ func (cc *clientConnection) Connect() (err error) {
 
 		addr := cc.RemoteAddr()
 		if addr != nil {
-			cc.rawConnection, err = net.DialTimeout("tcp", cc.RemoteAddr().String(), timeout)
+			cc.rawConnection, err = net.DialTimeout(cc.network, cc.RemoteAddr().String(), timeout)
 		} else {
 			err = errors.New("ClientConnection RemoteAddr is nil")
 		}

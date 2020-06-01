@@ -247,7 +247,7 @@ func (m *Mosn) Start() {
 	// start mosn feature
 	featuregate.StartInit()
 	// TODO: remove it
-	//parse service registry info
+	// parse service registry info
 	log.StartLogger.Infof("mosn parse registry info")
 	configmanager.ParseServiceRegistry(m.config.ServiceRegistry)
 

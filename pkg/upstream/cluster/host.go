@@ -24,11 +24,12 @@ import (
 	"time"
 
 	"mosn.io/api"
+	"mosn.io/pkg/utils"
+
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/network"
 	"mosn.io/mosn/pkg/types"
-	"mosn.io/pkg/utils"
 )
 
 // simpleHost is an implement of types.Host and types.HostInfo
@@ -41,12 +42,13 @@ type simpleHost struct {
 	tlsDisable    bool
 	weight        uint32
 	healthFlags   *uint64
+	network       string
 }
 
 func NewSimpleHost(config v2.Host, clusterInfo types.ClusterInfo) types.Host {
 	// clusterInfo should not be nil
 	// pre resolve address
-	GetOrCreateAddr(config.Address)
+	GetOrCreateAddr(config.Address, config.Network)
 	return &simpleHost{
 		hostname:      config.Hostname,
 		addressString: config.Address,
@@ -56,6 +58,7 @@ func NewSimpleHost(config v2.Host, clusterInfo types.ClusterInfo) types.Host {
 		tlsDisable:    config.TLSDisable,
 		weight:        config.Weight,
 		healthFlags:   GetHealthFlagPointer(config.Address),
+		network:       config.Network,
 	}
 }
 
@@ -73,7 +76,7 @@ func (sh *simpleHost) ClusterInfo() types.ClusterInfo {
 }
 
 func (sh *simpleHost) Address() net.Addr {
-	return GetOrCreateAddr(sh.addressString)
+	return GetOrCreateAddr(sh.addressString, sh.network)
 }
 
 func (sh *simpleHost) AddressString() string {
@@ -154,13 +157,22 @@ var AddrStore *utils.ExpiredMap = utils.NewExpiredMap(
 		return nil, false
 	}, false)
 
-func GetOrCreateAddr(addrstr string) net.Addr {
+func GetOrCreateAddr(addrstr string, network string) net.Addr {
 
+	var (
+		addr net.Addr
+		err  error
+	)
 	if addr, _ := AddrStore.Get(addrstr); addr != nil {
 		return addr.(net.Addr)
 	}
 
-	addr, err := net.ResolveTCPAddr("tcp", addrstr)
+	if network == "udp" {
+		addr, err = net.ResolveUDPAddr("udp", addrstr)
+	} else {
+		addr, err = net.ResolveTCPAddr("tcp", addrstr)
+	}
+
 	if err != nil {
 		log.DefaultLogger.Errorf("[upstream] resolve addr %s failed: %v", addrstr, err)
 		return nil

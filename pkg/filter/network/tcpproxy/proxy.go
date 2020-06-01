@@ -50,19 +50,17 @@ type proxy struct {
 
 	accessLogs []api.AccessLog
 	ctx        context.Context
+	network    string
 }
 
-func NewProxy(ctx context.Context, config *v2.TCPProxy) Proxy {
-	return newProxy(ctx, NewProxyConfig(config))
-}
-
-func newProxy(ctx context.Context, cfg ProxyConfig) *proxy {
+func NewProxy(ctx context.Context, config *v2.TCPProxy, ntwk string) Proxy {
 	p := &proxy{
-		config:         cfg,
+		config:         NewProxyConfig(config),
 		clusterManager: cluster.GetClusterMngAdapterInstance().ClusterManager,
 		requestInfo:    network.NewRequestInfo(),
 		accessLogs:     mosnctx.Get(ctx, types.ContextKeyAccessLogs).([]api.AccessLog),
 		ctx:            ctx,
+		network:        ntwk,
 	}
 
 	p.upstreamCallbacks = &upstreamCallbacks{
@@ -133,7 +131,7 @@ func (p *proxy) initializeUpstreamConnection() api.FilterStatus {
 		ctx:     p.ctx,
 		cluster: clusterInfo,
 	}
-	connectionData := p.initConnForCluster(ctx, clusterSnapshot)
+	connectionData := p.createConnectionData(ctx, clusterSnapshot)
 	if connectionData.Connection == nil {
 		p.requestInfo.SetResponseFlag(api.NoHealthyUpstream)
 		p.onInitFailure(NoHealthyUpstream)
@@ -160,8 +158,11 @@ func (p *proxy) initializeUpstreamConnection() api.FilterStatus {
 	return api.Continue
 }
 
-func (p *proxy) initConnForCluster(ctx types.LoadBalancerContext, clusterSnapshot types.ClusterSnapshot) types.CreateConnectionData {
-	return p.clusterManager.TCPConnForCluster(ctx, clusterSnapshot)
+func (p *proxy) createConnectionData(balancerContext types.LoadBalancerContext, snapshot types.ClusterSnapshot) types.CreateConnectionData {
+	if p.network == "udp" {
+		return p.clusterManager.UDPConnForCluster(balancerContext, snapshot)
+	}
+	return p.clusterManager.TCPConnForCluster(balancerContext, snapshot)
 }
 
 func (p *proxy) closeUpstreamConnection() {
@@ -242,9 +243,54 @@ func (p *proxy) ReadDisableDownstream(disable bool) {
 }
 
 type proxyConfig struct {
-	statPrefix string
-	cluster    string
-	routes     []*route
+	statPrefix         string
+	cluster            string
+	idleTimeout        *time.Duration
+	maxConnectAttempts uint32
+	routes             []*route
+}
+
+type IpRangeList struct {
+	cidrRanges []v2.CidrRange
+}
+
+func (ipList *IpRangeList) Contains(address net.Addr) bool {
+	tcpAddr, ok := address.(*net.TCPAddr)
+	log.DefaultLogger.Tracef("IpRangeList check ip = %v,address = %v", tcpAddr, address)
+	if ok {
+		ip := tcpAddr.IP
+		for _, cidrRange := range ipList.cidrRanges {
+			log.DefaultLogger.Tracef("check CidrRange = %v,ip = %v", cidrRange, ip)
+			if cidrRange.IsInRange(ip) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type PortRangeList struct {
+	portList []PortRange
+}
+
+func (pr *PortRangeList) Contains(address net.Addr) bool {
+	tcpAddr, ok := address.(*net.TCPAddr)
+	if ok {
+		port := tcpAddr.Port
+		log.DefaultLogger.Tracef("PortRangeList check port = %v , address = %v", port, address)
+		for _, portRange := range pr.portList {
+			log.DefaultLogger.Tracef("check port range , port range = %v , port = %v", portRange, port)
+			if port >= portRange.min && port <= portRange.max {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type PortRange struct {
+	min int
+	max int
 }
 
 func ParsePortRangeList(ports string) PortRangeList {
@@ -276,31 +322,38 @@ func ParsePortRangeList(ports string) PortRangeList {
 	return PortRangeList{portList}
 }
 
+type route struct {
+	clusterName      string
+	sourceAddrs      IpRangeList
+	destinationAddrs IpRangeList
+	sourcePort       PortRangeList
+	destinationPort  PortRangeList
+}
+
 func NewProxyConfig(config *v2.TCPProxy) ProxyConfig {
 	var routes []*route
 
 	log.DefaultLogger.Tracef("Tcp Proxy :: New Proxy Config = %v", config)
 	for _, routeConfig := range config.Routes {
-		route := newRoute((*v2.Route)(routeConfig))
+		route := &route{
+			clusterName:      routeConfig.Cluster,
+			sourceAddrs:      IpRangeList{routeConfig.SourceAddrs},
+			destinationAddrs: IpRangeList{routeConfig.DestinationAddrs},
+			sourcePort:       ParsePortRangeList(routeConfig.SourcePort),
+			destinationPort:  ParsePortRangeList(routeConfig.DestinationPort),
+		}
 		log.DefaultLogger.Tracef("Tcp Proxy add one route : %v", route)
+
 		routes = append(routes, route)
 	}
 
-	return &tcpProxyConfig{
-		proxyConfig: proxyConfig{
-			statPrefix: config.StatPrefix,
-			cluster:    config.Cluster,
-			routes:     routes,
-		},
+	return &proxyConfig{
+		statPrefix:         config.StatPrefix,
+		cluster:            config.Cluster,
 		idleTimeout:        config.IdleTimeout,
 		maxConnectAttempts: config.MaxConnectAttempts,
+		routes:             routes,
 	}
-}
-
-type tcpProxyConfig struct {
-	proxyConfig
-	idleTimeout        *time.Duration
-	maxConnectAttempts uint32
 }
 
 func (pc *proxyConfig) GetRouteFromEntries(connection api.Connection) string {

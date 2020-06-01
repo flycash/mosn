@@ -19,12 +19,6 @@ package v2
 
 import "time"
 
-type UDPProxy struct {
-	StatPrefix         string         `json:"stat_prefix,omitempty"`
-	Cluster            string         `json:"cluster,omitempty"`
-	Routes             []*TCPRoute    `json:"routes,omitempty"`
-}
-
 // TCPProxy
 type TCPProxy struct {
 	StatPrefix         string         `json:"stat_prefix,omitempty"`

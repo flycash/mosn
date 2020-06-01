@@ -47,6 +47,7 @@ type HostConfig struct {
 	Weight         uint32          `json:"weight,omitempty"`
 	MetaDataConfig *MetadataConfig `json:"metadata,omitempty"`
 	TLSDisable     bool            `json:"tls_disable,omitempty"`
+	Network        string          `default:"tcp" json:"network,omitempty"`
 }
 
 // ClusterType
@@ -74,7 +75,7 @@ const (
 type Cluster struct {
 	Name                 string              `json:"name,omitempty"`
 	ClusterType          ClusterType         `json:"type,omitempty"`
-	SubType              string              `json:"sub_type,omitempty"` //not used yet
+	SubType              string              `json:"sub_type,omitempty"` // not used yet
 	LbType               LbType              `json:"lb_type,omitempty"`
 	MaxRequestPerConn    uint32              `json:"max_request_per_conn,omitempty"`
 	ConnBufferLimitBytes uint32              `json:"conn_buffer_limit_bytes,omitempty"`

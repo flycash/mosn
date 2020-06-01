@@ -44,7 +44,7 @@ func Test_clientStream_AppendHeaders(t *testing.T) {
 			stream: streamMocked,
 			connection: &clientStreamConnection{
 				streamConnection: streamConnection{
-					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil),
+					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil, "tcp"),
 				},
 			},
 		},
@@ -84,7 +84,7 @@ func Test_header_capitalization(t *testing.T) {
 			stream: streamMocked,
 			connection: &clientStreamConnection{
 				streamConnection: streamConnection{
-					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil),
+					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil, "tcp"),
 				},
 			},
 		},
@@ -130,7 +130,7 @@ func Test_header_conflict(t *testing.T) {
 			stream: streamMocked,
 			connection: &clientStreamConnection{
 				streamConnection: streamConnection{
-					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil),
+					conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil, "tcp"),
 				},
 			},
 		},
@@ -252,7 +252,7 @@ func Test_clientStream_CheckReasonError(t *testing.T) {
 
 	csc := &clientStreamConnection{
 		streamConnection: streamConnection{
-			conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil),
+			conn: network.NewClientConnection(nil, 0, nil, remoteAddr, nil, "tcp"),
 		},
 	}
 
