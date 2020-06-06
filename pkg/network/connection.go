@@ -106,10 +106,27 @@ type connection struct {
 	tryMutex     *utils.Mutex
 	needTransfer bool
 	useWriteLoop bool
+
+	reader reader
 }
 
 // NewServerConnection new server-side connection, rawc is the raw connection from go/net
 func NewServerConnection(ctx context.Context, rawc net.Conn, stopChan chan struct{}) api.Connection {
+	tcpConn := &tcpConnection{
+		newServerConnection(ctx, rawc, stopChan),
+	}
+	tcpConn.reader = &tcpReader{c: tcpConn}
+	return tcpConn
+}
+
+func NewServerConnectionForUdp(ctx context.Context, rawc net.Conn, stopChan chan struct{}) api.Connection {
+	conn := newServerConnection(ctx, rawc, stopChan)
+	udpConn := AdaptToUdpConnection(conn)
+	udpConn.reader = &udpReader{conn: udpConn}
+	return udpConn
+}
+
+func newServerConnection(ctx context.Context, rawc net.Conn, stopChan chan struct{}) *connection {
 	id := atomic.AddUint64(&idCounter, 1)
 
 	conn := &connection{
@@ -431,44 +448,7 @@ func (c *connection) transferWrite(id uint64) {
 }
 
 func (c *connection) doRead() (err error) {
-	if c.readBuffer == nil {
-		c.readBuffer = buffer.GetIoBuffer(DefaultBufferReadCapacity)
-	}
 
-	var bytesRead int64
-
-	bytesRead, err = c.readBuffer.ReadOnce(c.rawConnection)
-
-	if err != nil {
-		if atomic.LoadUint32(&c.closed) == 1 {
-			return err
-		}
-		if te, ok := err.(net.Error); ok && te.Timeout() {
-			for _, cb := range c.connCallbacks {
-				cb.OnEvent(api.OnReadTimeout) // run read timeout callback, for keep alive if configured
-			}
-			if bytesRead == 0 {
-				return err
-			}
-		} else if err != io.EOF {
-			return err
-		}
-	}
-
-	// todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
-	if bytesRead == 0 && err == nil {
-		err = io.EOF
-		log.DefaultLogger.Errorf("[network] ReadOnce maybe always return (0, nil) and causes dead loop, Connection = %d, Local Address = %+v, Remote Address = %+v",
-			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
-	}
-
-	for _, cb := range c.bytesReadCallbacks {
-		cb(uint64(bytesRead))
-	}
-
-	c.onRead()
-	c.updateReadBufStats(bytesRead, int64(c.readBuffer.Len()))
-	return
 }
 
 func (c *connection) updateReadBufStats(bytesRead int64, bytesBufSize int64) {
@@ -944,7 +924,7 @@ func NewClientConnection(sourceAddr net.Addr,
 	id := atomic.AddUint64(&idCounter, 1)
 
 	conn := &clientConnection{
-		network:network,
+		network: network,
 		connection: connection{
 			id:               id,
 			localAddr:        sourceAddr,
@@ -1037,5 +1017,113 @@ func (cc *clientConnection) Connect() (err error) {
 		}
 	})
 
+	return
+}
+
+type tcpConnection struct {
+	*connection
+}
+
+type udpConnection struct {
+	*connection
+}
+
+func AdaptToUdpConnection(conn *connection) *udpConnection {
+	return &udpConnection{
+		conn,
+	}
+}
+
+func (uc *udpConnection) Start(lctx context.Context) {
+	uc.startOnce.Do(func() {
+		uc.startRWLoop(lctx)
+	})
+}
+
+type reader interface {
+	DoRead() error
+}
+
+type udpReader struct {
+	c *udpConnection
+}
+
+func (ur *udpReader) DoRead() error {
+	c := ur.c
+	if c.readBuffer == nil {
+		c.readBuffer = buffer.GetIoBuffer(DefaultBufferReadCapacity)
+	}
+
+	buf := make([]byte, 1024)
+	len, _, err := c.rawConnection.(*net.UDPConn).ReadFromUDP(buf)
+	if err != nil {
+		if atomic.LoadUint32(&c.closed) == 1 {
+			return err
+		}
+		if len == 0 {
+			return err
+		}
+		if err != io.EOF {
+			return err
+		}
+	}
+
+	if len == 0 {
+		return errors.New(fmt.Sprintf("could not read any data, root cause: %v", err) )
+	}
+	 _, _ = c.readBuffer.Write(buf)
+
+	for _, cb := range c.bytesReadCallbacks {
+		cb(uint64(len))
+	}
+
+	c.onRead()
+	c.updateReadBufStats(int64(len), int64(c.readBuffer.Len()))
+	return nil
+}
+
+type tcpReader struct {
+	c *tcpConnection
+}
+
+func (tr *tcpReader) DoRead() (err error) {
+	c := tr.c
+	if c.readBuffer == nil {
+		c.readBuffer = buffer.GetIoBuffer(DefaultBufferReadCapacity)
+	}
+
+	var bytesRead int64
+
+	bytesRead, err = c.readBuffer.ReadOnce(c.rawConnection)
+
+	if err != nil {
+		if atomic.LoadUint32(&c.closed) == 1 {
+			return err
+		}
+		if te, ok := err.(net.Error); ok && te.Timeout() {
+			for _, cb := range c.connCallbacks {
+				cb.OnEvent(api.OnReadTimeout) // run read timeout callback, for keep alive if configured
+			}
+			if bytesRead == 0 {
+				return err
+			}
+		} else if err != io.EOF {
+			return err
+		}
+	}
+
+	// todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
+	if bytesRead == 0 && err == nil {
+		err = io.EOF
+		log.DefaultLogger.Errorf("[network] ReadOnce maybe always return (0, nil) and causes dead loop, Connection = %d, Local Address = %+v, Remote Address = %+v",
+			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
+	}
+
+	for _, cb := range c.bytesReadCallbacks {
+		cb(uint64(bytesRead))
+	}
+
+	c.onRead()
+	c.updateReadBufStats(bytesRead, int64(c.readBuffer.Len()))
 	return
 }

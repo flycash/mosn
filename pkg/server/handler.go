@@ -444,6 +444,16 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 		arc.acceptedFilters = append(arc.acceptedFilters, originaldst.NewOriginalDst())
 	}
 
+	ctx := prepareContext(al, rawf, ch, buf, oriRemoteAddr)
+
+	arc.ctx = ctx
+
+	arc.ContinueFilterChain(ctx, true)
+
+	arc.activeListener.newConnection(ctx, arc.rawc)
+}
+
+func prepareContext(al *activeListener, rawf *os.File, ch chan api.Connection, buf []byte, oriRemoteAddr net.Addr) context.Context {
 	ctx := mosnctx.WithValue(context.Background(), types.ContextKeyListenerPort, al.listenPort)
 	ctx = mosnctx.WithValue(ctx, types.ContextKeyListenerType, al.listener.Config().Type)
 	ctx = mosnctx.WithValue(ctx, types.ContextKeyListenerName, al.listener.Name())
@@ -460,10 +470,7 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 	if oriRemoteAddr != nil {
 		ctx = mosnctx.WithValue(ctx, types.ContextOriRemoteAddr, oriRemoteAddr)
 	}
-
-	arc.ctx = ctx
-
-	arc.ContinueFilterChain(ctx, true)
+	return ctx
 }
 
 func (al *activeListener) OnNewConnection(ctx context.Context, conn api.Connection) {
@@ -514,6 +521,12 @@ var defaultIdleTimeout = types.DefaultIdleTimeout
 
 func (al *activeListener) newConnection(ctx context.Context, rawc net.Conn) {
 	conn := network.NewServerConnection(ctx, rawc, al.stopChan)
+	al.customConn(conn, ctx)
+	newCtx := mosnctx.WithValue(ctx, types.ContextKeyConnectionID, conn.ID())
+	al.OnNewConnection(newCtx, conn)
+}
+
+func (al *activeListener) customConn(conn api.Connection, ctx context.Context) {
 	if al.idleTimeout != nil {
 		conn.SetIdleTimeout(al.idleTimeout.Duration)
 	} else {
@@ -525,11 +538,8 @@ func (al *activeListener) newConnection(ctx context.Context, rawc net.Conn) {
 	if oriRemoteAddr != nil {
 		conn.SetRemoteAddr(oriRemoteAddr.(net.Addr))
 	}
-	newCtx := mosnctx.WithValue(ctx, types.ContextKeyConnectionID, conn.ID())
 
 	conn.SetBufferLimit(al.listener.PerConnBufferLimitBytes())
-
-	al.OnNewConnection(newCtx, conn)
 }
 
 type activeRawConn struct {
@@ -624,9 +634,6 @@ func (arc *activeRawConn) ContinueFilterChain(ctx context.Context, success bool)
 			return
 		}
 	}
-
-	arc.activeListener.newConnection(ctx, arc.rawc)
-
 }
 
 func (arc *activeRawConn) Conn() net.Conn {
@@ -818,4 +825,38 @@ func GetInheritListeners() ([]net.Listener, net.Conn, error) {
 	}
 
 	return listeners, uc, nil
+}
+
+type udpActiveListener struct {
+	*activeListener
+}
+
+func (ual *udpActiveListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemoteAddr net.Addr, ch chan api.Connection, buf []byte) {
+	rawf, err := rawc.(*net.UDPConn).File()
+
+	if err != nil {
+		log.DefaultLogger.Warnf("could not find the raw file, %v", err)
+		return
+	}
+	ctx := prepareContext(ual.activeListener, rawf, ch, buf, oriRemoteAddr)
+
+	arc := newActiveRawConn(rawc, ual.activeListener)
+
+	arc.ctx = ctx
+
+	// listener filter chain.
+	for _, lfcf := range ual.listenerFiltersFactories {
+		arc.acceptedFilters = append(arc.acceptedFilters, lfcf)
+	}
+
+	arc.ContinueFilterChain(ctx, true)
+
+	ual.newConnection(ctx, arc.rawc)
+}
+
+func (ual *udpActiveListener) newConnection(ctx context.Context, rawc net.Conn) {
+	conn := network.NewServerConnectionForUdp(ctx, rawc, ual.stopChan)
+	ual.customConn(conn, ctx)
+	newCtx := mosnctx.WithValue(ctx, types.ContextKeyConnectionID, conn.ID())
+	ual.OnNewConnection(newCtx, conn)
 }

@@ -268,17 +268,20 @@ func (l *listener) isListening() bool {
 
 func (l *listener) accept(lctx context.Context) error {
 
+	if l.rawConn != nil && l.rawConn.RemoteAddr().Network() == "udp" {
+		l.cb.OnAccept(l.rawConn, false, nil, nil, nil)
+	}
+
 	var (
 		rawc net.Conn
 		err  error
 	)
+
 	if l.rawl != nil {
 		rawc, err = l.rawl.Accept()
 		if err != nil {
 			return err
 		}
-	} else {
-		rawc = l.rawConn
 	}
 
 	// TODO: use thread pool
